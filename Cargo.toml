@@ -1,0 +1,10 @@
+[package]
+name = "PMTAlpha"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+winapi = { version = "0.3", features = ["fileapi", "handleapi", "winnt", "ioapiset", "winioctl", "errhandlingapi", "winerror"] }
+widestring = "0.4"
+eframe = "0.21"
+egui = "0.21"
