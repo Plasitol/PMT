@@ -246,6 +246,7 @@ struct HDDApp {
     logical_drives_on_physical: Vec<String>,
     selected_logical_drive: Option<String>,
     drive_space_info: Option<(f64, f64, f64)>,
+    partitions_info: Vec<(u64, Color32, String, String)>,
 }
 
 impl Default for HDDApp {
@@ -265,9 +266,11 @@ impl Default for HDDApp {
             logical_drives_on_physical: Vec::new(),
             selected_logical_drive: None,
             drive_space_info: None,
+            partitions_info: Vec::new(),
         }
     }
 }
+
 
 impl eframe::App for HDDApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
@@ -293,6 +296,7 @@ impl eframe::App for HDDApp {
                     if handle != INVALID_HANDLE_VALUE {
                         self.geometry = get_drive_geometry(handle);
                         unsafe { CloseHandle(handle) };
+                        self.partitions_info = get_partitions_on_physical_drive(index);
                         self.logical_drives_on_physical = get_logical_drives_on_physical_drive(index);
                     }
                 }
@@ -309,20 +313,21 @@ impl eframe::App for HDDApp {
                 } else {
                     ui.label("Failed to get disk geometry.");
                 }
+
+                ui.label(format!("Partition style: {}", if self.partitions_info.is_empty() { "Unknown" } else { &self.partitions_info[0].3 }));
+
                 ui.separator();
 
                 ui.heading("Partitions on this physical drive:");
-                let partitions = get_partitions_on_physical_drive(index);
-                let partition_data: Vec<(u64, Color32, String)> = partitions
+                let partition_data: Vec<(u64, Color32, String)> = self.partitions_info
                     .iter()
-                    .map(|(size, color, label)| (*size, *color, label.clone()))
+                    .map(|(size, color, label, _style)| (*size, *color, label.clone()))
                     .collect();
 
                 if let Some(disk_geometry) = &self.geometry {
                     let total_disk_size = unsafe { *disk_geometry.DiskSize.QuadPart() } as u64;
                     draw_partitions_bar(ui, &partition_data, total_disk_size);
                 }
-
 
                 ui.separator();
                 ui.heading("Logical Drives on this physical drive:");
@@ -400,7 +405,7 @@ fn get_free_space(drive_letter: &str) -> Option<(f64, f64, f64)> {
     }
 }
 
-fn get_partitions_on_physical_drive(index: usize) -> Vec<(u64, Color32, String)> {
+fn get_partitions_on_physical_drive(index: usize) -> Vec<(u64, Color32, String, String)> {
     let mut partitions = Vec::new();
     let device_path = format!("\\\\.\\PHYSICALDRIVE{}", index);
     let device_path_utf16 = U16CString::from_str(&device_path).ok().unwrap();
@@ -442,14 +447,20 @@ fn get_partitions_on_physical_drive(index: usize) -> Vec<(u64, Color32, String)>
             let partition_info = unsafe { &*(layout_info.PartitionEntry.as_ptr().add(i as usize) as *const PARTITION_INFORMATION_EX) };
             let size = unsafe { *partition_info.PartitionLength.QuadPart() as u64 };
             let color = get_partition_colors(partition_info.PartitionStyle as u8);
+            let style = match partition_info.PartitionStyle {
+                PARTITION_STYLE_MBR => "GPT",
+                PARTITION_STYLE_GPT => "MBR",
+                _ => "Unknown",
+            };
             let label = format!("Partition {}", i + 1);
-            partitions.push((size, color, label));
+            partitions.push((size, color, label, style.to_string()));
         }
     }
 
     unsafe { CloseHandle(handle) };
     partitions
 }
+
 
 fn draw_partitions_bar(ui: &mut Ui, partitions: &[(u64, Color32, String)], total_disk_size: u64) {
     let min_partition_width = 60.0;
@@ -525,7 +536,6 @@ fn draw_partitions_bar(ui: &mut Ui, partitions: &[(u64, Color32, String)], total
                 egui::FontId::proportional(12.0),
                 *color,
             );
-
             label_y += 20.0;
         }
     }
